@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Discord Bot Configuration Panel</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Discord Bot Configuration</h1>
+            <div id="bot-status" class="status-badge offline">Offline</div>
+        </header>
+
+        <section class="card token-section">
+            <h2>Bot Token</h2>
+            <div class="token-input-group">
+                <input type="password" id="bot-token" placeholder="Enter your Discord Bot Token">
+                <button id="toggle-token" class="btn-icon">Show</button>
+            </div>
+            <div class="token-actions">
+                <button id="verify-token" class="btn btn-primary">Verify Token</button>
+                <button id="save-token" class="btn btn-success" disabled>Save & Connect</button>
+            </div>
+            <div id="token-result" class="result-box hidden"></div>
+        </section>
+
+        <section class="card status-section">
+            <h2>Bot Status</h2>
+            <div class="status-grid">
+                <div class="status-option" data-status="online">
+                    <div class="status-indicator online"></div>
+                    <span>Online</span>
+                </div>
+                <div class="status-option" data-status="idle">
+                    <div class="status-indicator idle"></div>
+                    <span>Idle</span>
+                </div>
+                <div class="status-option" data-status="dnd">
+                    <div class="status-indicator dnd"></div>
+                    <span>Do Not Disturb</span>
+                </div>
+                <div class="status-option" data-status="invisible">
+                    <div class="status-indicator invisible"></div>
+                    <span>Invisible</span>
+                </div>
+            </div>
+        </section>
+
+        <section class="card activity-section">
+            <h2>Activity Status</h2>
+            <div class="activity-type-grid">
+                <button class="activity-btn" data-type="PLAYING">Playing</button>
+                <button class="activity-btn" data-type="STREAMING">Streaming</button>
+                <button class="activity-btn" data-type="LISTENING">Listening</button>
+                <button class="activity-btn" data-type="WATCHING">Watching</button>
+                <button class="activity-btn" data-type="COMPETING">Competing</button>
+            </div>
+            <div class="activity-input-group">
+                <input type="text" id="activity-text" placeholder="Enter activity text (e.g., !help)">
+                <input type="text" id="streaming-url" placeholder="Streaming URL (Twitch/YouTube)" class="hidden">
+            </div>
+            <button id="update-activity" class="btn btn-primary">Update Activity</button>
+        </section>
+
+        <section class="card roles-section">
+            <h2>Role Configuration</h2>
+            <div class="roles-grid">
+                <div class="role-config">
+                    <label for="general-role">General Commands Role ID</label>
+                    <input type="text" id="general-role" placeholder="Role ID for general commands">
+                </div>
+                <div class="role-config">
+                    <label for="mod-role">Moderation Role ID</label>
+                    <input type="text" id="mod-role" placeholder="Role ID for moderation commands">
+                </div>
+                <div class="role-config">
+                    <label for="music-role">Music Role ID</label>
+                    <input type="text" id="music-role" placeholder="Role ID for music commands">
+                </div>
+                <div class="role-config">
+                    <label for="verified-role">Verified Role ID</label>
+                    <input type="text" id="verified-role" placeholder="Role ID given after verification">
+                </div>
+                <div class="role-config">
+                    <label for="owner-id">Owner ID</label>
+                    <input type="text" id="owner-id" placeholder="Your Discord User ID">
+                </div>
+                <div class="role-config">
+                    <label for="prefix">Command Prefix</label>
+                    <input type="text" id="prefix" placeholder="!" value="!">
+                </div>
+            </div>
+            <button id="save-roles" class="btn btn-success">Save Configuration</button>
+        </section>
+
+        <section class="card music-section">
+            <h2>Music Settings (Erela.js)</h2>
+            <div class="music-grid">
+                <div class="music-config">
+                    <label for="lavalink-host">Lavalink Host</label>
+                    <input type="text" id="lavalink-host" placeholder="localhost" value="localhost">
+                </div>
+                <div class="music-config">
+                    <label for="lavalink-port">Lavalink Port</label>
+                    <input type="number" id="lavalink-port" placeholder="2333" value="2333">
+                </div>
+                <div class="music-config">
+                    <label for="lavalink-password">Lavalink Password</label>
+                    <input type="password" id="lavalink-password" placeholder="youshallnotpass" value="youshallnotpass">
+                </div>
+            </div>
+            <button id="save-music" class="btn btn-success">Save Music Settings</button>
+        </section>
+
+        <section class="card bot-info hidden" id="bot-info-section">
+            <h2>Connected Bot Info</h2>
+            <div class="bot-details">
+                <img id="bot-avatar" src="" alt="Bot Avatar" class="bot-avatar">
+                <div class="bot-text">
+                    <p><strong>Username:</strong> <span id="bot-username">-</span></p>
+                    <p><strong>ID:</strong> <span id="bot-id">-</span></p>
+                    <p><strong>Guilds:</strong> <span id="bot-guilds">-</span></p>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
