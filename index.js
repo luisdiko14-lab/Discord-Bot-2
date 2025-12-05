@@ -22,6 +22,7 @@ const {
 } = require('discord.js');
 const fetch = require('node-fetch');
 const ytdl = require('ytdl-core');
+const { Manager } = require('erela.js');
 
 // --- CONFIGURATION ---
 const PREFIX = process.env.PREFIX || '!';
@@ -58,7 +59,61 @@ const client = new Client({
 });
 client.commands = new Collection();
 client.cooldowns = new Collection();
-client.queue = new Map(); // guildId -> queue
+client.queue = new Map();
+
+// --- ERELA.JS MUSIC MANAGER ---
+const LAVALINK_HOST = process.env.LAVALINK_HOST || 'localhost';
+const LAVALINK_PORT = parseInt(process.env.LAVALINK_PORT) || 2333;
+const LAVALINK_PASSWORD = process.env.LAVALINK_PASSWORD || 'youshallnotpass';
+
+client.manager = new Manager({
+  nodes: [{
+    host: LAVALINK_HOST,
+    port: LAVALINK_PORT,
+    password: LAVALINK_PASSWORD,
+    secure: false
+  }],
+  autoPlay: true,
+  send(id, payload) {
+    const guild = client.guilds.cache.get(id);
+    if (guild) guild.shard.send(payload);
+  }
+})
+.on('nodeConnect', node => console.log(`[Music] Node "${node.options.host}" connected`))
+.on('nodeError', (node, error) => console.log(`[Music] Node "${node.options.host}" error: ${error.message}`))
+.on('nodeDisconnect', node => console.log(`[Music] Node "${node.options.host}" disconnected`))
+.on('trackStart', (player, track) => {
+  const channel = client.channels.cache.get(player.textChannel);
+  if (channel) {
+    const embed = new EmbedBuilder()
+      .setColor(DEFAULT_COLOR)
+      .setTitle('Now Playing')
+      .setDescription(`[${track.title}](${track.uri})`)
+      .addFields(
+        { name: 'Duration', value: formatDuration(track.duration), inline: true },
+        { name: 'Requested by', value: track.requester?.toString() || 'Unknown', inline: true }
+      );
+    channel.send({ embeds: [embed] });
+  }
+})
+.on('trackEnd', (player, track) => {
+  console.log(`[Music] Track ended: ${track.title}`);
+})
+.on('queueEnd', player => {
+  const channel = client.channels.cache.get(player.textChannel);
+  if (channel) {
+    channel.send({ embeds: [new EmbedBuilder().setColor('Grey').setDescription('Queue ended. Leaving voice channel.')] });
+  }
+  player.destroy();
+});
+
+function formatDuration(ms) {
+  const seconds = Math.floor((ms / 1000) % 60);
+  const minutes = Math.floor((ms / (1000 * 60)) % 60);
+  const hours = Math.floor(ms / (1000 * 60 * 60));
+  if (hours > 0) return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+}
 
 // --- HELPERS ---
 const sendEmbed = (channel, opts) => channel.send({ embeds: [new EmbedBuilder(opts)] });
@@ -120,6 +175,37 @@ const commandsConfig = [
   },
   { name: 'unlockdown', role: MOD_ROLE_ID,
     slash: new SlashCommandBuilder().setName('unlockdown').setDescription('Lift lockdown')
+  },
+  // Music Commands
+  { name: 'play', role: MUSIC_ROLE_ID,
+    slash: new SlashCommandBuilder()
+      .setName('play')
+      .setDescription('Play a song from YouTube')
+      .addStringOption(o => o.setName('query').setDescription('Song name or URL').setRequired(true))
+  },
+  { name: 'skip', role: MUSIC_ROLE_ID,
+    slash: new SlashCommandBuilder().setName('skip').setDescription('Skip the current song')
+  },
+  { name: 'stop', role: MUSIC_ROLE_ID,
+    slash: new SlashCommandBuilder().setName('stop').setDescription('Stop music and clear queue')
+  },
+  { name: 'pause', role: MUSIC_ROLE_ID,
+    slash: new SlashCommandBuilder().setName('pause').setDescription('Pause the current song')
+  },
+  { name: 'resume', role: MUSIC_ROLE_ID,
+    slash: new SlashCommandBuilder().setName('resume').setDescription('Resume the paused song')
+  },
+  { name: 'queue', role: MUSIC_ROLE_ID,
+    slash: new SlashCommandBuilder().setName('queue').setDescription('Show the music queue')
+  },
+  { name: 'volume', role: MUSIC_ROLE_ID,
+    slash: new SlashCommandBuilder()
+      .setName('volume')
+      .setDescription('Set the volume')
+      .addIntegerOption(o => o.setName('level').setDescription('Volume level (0-100)').setRequired(true))
+  },
+  { name: 'nowplaying', role: MUSIC_ROLE_ID,
+    slash: new SlashCommandBuilder().setName('nowplaying').setDescription('Show currently playing song')
   }
 ];
 commandsConfig.forEach(cmd => {
@@ -190,6 +276,168 @@ async function execCommand(name, context, args = [], interaction = null) {
       interaction ? interaction.reply({ content: msg, ephemeral: true }) : context.reply(msg);
       break;
     }
+    case 'play': {
+      const query = interaction ? interaction.options.getString('query') : args.join(' ');
+      const voiceChannel = member.voice?.channel;
+      
+      if (!voiceChannel) {
+        const msg = 'You must be in a voice channel to play music!';
+        return interaction ? interaction.reply({ content: msg, ephemeral: true }) : sendError(context.channel, msg);
+      }
+      
+      if (!query) {
+        const msg = 'Please provide a song name or URL.';
+        return interaction ? interaction.reply({ content: msg, ephemeral: true }) : sendError(context.channel, msg);
+      }
+
+      try {
+        if (interaction) await interaction.deferReply();
+        
+        let player = client.manager.players.get(context.guild?.id || interaction.guild.id);
+        
+        if (!player) {
+          player = client.manager.create({
+            guild: context.guild?.id || interaction.guild.id,
+            voiceChannel: voiceChannel.id,
+            textChannel: context.channel?.id || interaction.channel.id,
+            selfDeaf: true
+          });
+        }
+
+        if (player.state !== 'CONNECTED') player.connect();
+
+        const res = await client.manager.search(query, interaction?.user || context.author);
+
+        if (res.loadType === 'LOAD_FAILED' || res.loadType === 'NO_MATCHES') {
+          const msg = 'No results found for your query.';
+          return interaction ? interaction.editReply(msg) : context.reply(msg);
+        }
+
+        if (res.loadType === 'PLAYLIST_LOADED') {
+          for (const track of res.tracks) {
+            player.queue.add(track);
+          }
+          const msg = `Added **${res.tracks.length}** tracks from playlist **${res.playlist.name}**`;
+          interaction ? interaction.editReply(msg) : context.reply(msg);
+        } else {
+          player.queue.add(res.tracks[0]);
+          const msg = `Added **${res.tracks[0].title}** to the queue`;
+          interaction ? interaction.editReply(msg) : context.reply(msg);
+        }
+
+        if (!player.playing && !player.paused) player.play();
+      } catch (error) {
+        console.error('[Music] Play error:', error);
+        const msg = 'An error occurred while trying to play music. Make sure Lavalink is running.';
+        interaction ? interaction.editReply(msg) : sendError(context.channel, msg);
+      }
+      break;
+    }
+    case 'skip': {
+      const player = client.manager.players.get(context.guild?.id || interaction.guild.id);
+      if (!player || !player.queue.current) {
+        const msg = 'No music is currently playing.';
+        return interaction ? interaction.reply({ content: msg, ephemeral: true }) : sendError(context.channel, msg);
+      }
+      player.stop();
+      const msg = 'Skipped the current song.';
+      interaction ? interaction.reply(msg) : context.reply(msg);
+      break;
+    }
+    case 'stop': {
+      const player = client.manager.players.get(context.guild?.id || interaction.guild.id);
+      if (!player) {
+        const msg = 'No music is currently playing.';
+        return interaction ? interaction.reply({ content: msg, ephemeral: true }) : sendError(context.channel, msg);
+      }
+      player.destroy();
+      const msg = 'Stopped the music and cleared the queue.';
+      interaction ? interaction.reply(msg) : context.reply(msg);
+      break;
+    }
+    case 'pause': {
+      const player = client.manager.players.get(context.guild?.id || interaction.guild.id);
+      if (!player || !player.queue.current) {
+        const msg = 'No music is currently playing.';
+        return interaction ? interaction.reply({ content: msg, ephemeral: true }) : sendError(context.channel, msg);
+      }
+      player.pause(true);
+      const msg = 'Paused the music.';
+      interaction ? interaction.reply(msg) : context.reply(msg);
+      break;
+    }
+    case 'resume': {
+      const player = client.manager.players.get(context.guild?.id || interaction.guild.id);
+      if (!player) {
+        const msg = 'No music player found.';
+        return interaction ? interaction.reply({ content: msg, ephemeral: true }) : sendError(context.channel, msg);
+      }
+      player.pause(false);
+      const msg = 'Resumed the music.';
+      interaction ? interaction.reply(msg) : context.reply(msg);
+      break;
+    }
+    case 'queue': {
+      const player = client.manager.players.get(context.guild?.id || interaction.guild.id);
+      if (!player || !player.queue.current) {
+        const msg = 'No music is currently playing.';
+        return interaction ? interaction.reply({ content: msg, ephemeral: true }) : sendError(context.channel, msg);
+      }
+      
+      const queue = player.queue;
+      const embed = new EmbedBuilder()
+        .setColor(DEFAULT_COLOR)
+        .setTitle('Music Queue')
+        .setDescription(
+          `**Now Playing:** ${queue.current.title}\n\n` +
+          (queue.length > 0 
+            ? queue.slice(0, 10).map((track, i) => `${i + 1}. ${track.title}`).join('\n') +
+              (queue.length > 10 ? `\n...and ${queue.length - 10} more` : '')
+            : 'No more songs in queue')
+        );
+      
+      interaction ? interaction.reply({ embeds: [embed] }) : context.channel.send({ embeds: [embed] });
+      break;
+    }
+    case 'volume': {
+      const level = interaction ? interaction.options.getInteger('level') : parseInt(args[0]);
+      const player = client.manager.players.get(context.guild?.id || interaction.guild.id);
+      
+      if (!player) {
+        const msg = 'No music player found.';
+        return interaction ? interaction.reply({ content: msg, ephemeral: true }) : sendError(context.channel, msg);
+      }
+      
+      if (isNaN(level) || level < 0 || level > 100) {
+        const msg = 'Volume must be between 0 and 100.';
+        return interaction ? interaction.reply({ content: msg, ephemeral: true }) : sendError(context.channel, msg);
+      }
+      
+      player.setVolume(level);
+      const msg = `Volume set to ${level}%`;
+      interaction ? interaction.reply(msg) : context.reply(msg);
+      break;
+    }
+    case 'nowplaying': {
+      const player = client.manager.players.get(context.guild?.id || interaction.guild.id);
+      if (!player || !player.queue.current) {
+        const msg = 'No music is currently playing.';
+        return interaction ? interaction.reply({ content: msg, ephemeral: true }) : sendError(context.channel, msg);
+      }
+      
+      const track = player.queue.current;
+      const embed = new EmbedBuilder()
+        .setColor(DEFAULT_COLOR)
+        .setTitle('Now Playing')
+        .setDescription(`[${track.title}](${track.uri})`)
+        .addFields(
+          { name: 'Duration', value: formatDuration(track.duration), inline: true },
+          { name: 'Volume', value: `${player.volume}%`, inline: true }
+        );
+      
+      interaction ? interaction.reply({ embeds: [embed] }) : context.channel.send({ embeds: [embed] });
+      break;
+    }
   }
 }
 
@@ -199,7 +447,12 @@ client.once('ready', async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
   client.guilds.cache.forEach(g => deploySlash(g.id));
   client.user.setActivity(`${PREFIX}help`, { type: ActivityType.Listening });
+  
+  client.manager.init(client.user.id);
+  console.log('[Music] Erela.js Manager initialized');
 });
+
+client.on('raw', d => client.manager.updateVoiceState(d));
 
 client.on('guildCreate', guild => deploySlash(guild.id));
 
