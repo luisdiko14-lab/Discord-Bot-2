@@ -42,14 +42,22 @@ async function verifyToken() {
     const token = document.getElementById('bot-token').value.trim();
     const resultBox = document.getElementById('token-result');
     const saveBtn = document.getElementById('save-token');
+    const verifyBtn = document.getElementById('verify-token');
     
     if (!token) {
         showResult(resultBox, 'Please enter a bot token', false);
         return;
     }
 
+    if (token.length < 50) {
+        showResult(resultBox, 'Token appears too short - please check your bot token', false);
+        return;
+    }
+
     resultBox.classList.remove('hidden', 'success', 'error');
     resultBox.textContent = 'Verifying token...';
+    verifyBtn.disabled = true;
+    verifyBtn.textContent = 'Verifying...';
 
     try {
         const response = await fetch(`${API_BASE}/api/verify-token`, {
@@ -58,35 +66,56 @@ async function verifyToken() {
             body: JSON.stringify({ token })
         });
 
+        if (!response.ok) {
+            throw new Error(`Server error: ${response.status}`);
+        }
+
         const data = await response.json();
 
         if (data.valid) {
             currentToken = token;
-            showResult(resultBox, `Token Valid! Bot: ${data.username}#${data.discriminator} (ID: ${data.id})`, true);
+            const displayName = data.globalName || data.username;
+            const discriminator = data.discriminator !== '0' ? `#${data.discriminator}` : '';
+            showResult(resultBox, `Token Valid! Bot: ${displayName}${discriminator} (ID: ${data.id})`, true);
             saveBtn.disabled = false;
             
             document.getElementById('bot-info-section').classList.remove('hidden');
-            document.getElementById('bot-username').textContent = `${data.username}#${data.discriminator}`;
+            document.getElementById('bot-username').textContent = `${displayName}${discriminator}`;
             document.getElementById('bot-id').textContent = data.id;
             if (data.avatar) {
                 document.getElementById('bot-avatar').src = `https://cdn.discordapp.com/avatars/${data.id}/${data.avatar}.png`;
+            } else {
+                document.getElementById('bot-avatar').src = 'https://cdn.discordapp.com/embed/avatars/0.png';
             }
         } else {
             showResult(resultBox, `Invalid Token: ${data.error || 'Unknown error'}`, false);
             saveBtn.disabled = true;
         }
     } catch (error) {
+        console.error('Verify token error:', error);
         showResult(resultBox, `Error: ${error.message}`, false);
         saveBtn.disabled = true;
+    } finally {
+        verifyBtn.disabled = false;
+        verifyBtn.textContent = 'Verify Token';
     }
 }
 
 async function saveAndConnect() {
     const token = document.getElementById('bot-token').value.trim();
     const statusBadge = document.getElementById('bot-status');
+    const saveBtn = document.getElementById('save-token');
+    const resultBox = document.getElementById('token-result');
+    
+    if (!token) {
+        showResult(resultBox, 'Please enter and verify a token first', false);
+        return;
+    }
     
     statusBadge.className = 'status-badge connecting';
     statusBadge.textContent = 'Connecting...';
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Connecting...';
 
     try {
         const response = await fetch(`${API_BASE}/api/connect`, {
@@ -95,25 +124,36 @@ async function saveAndConnect() {
             body: JSON.stringify({ token })
         });
 
+        if (!response.ok) {
+            throw new Error(`Server error: ${response.status}`);
+        }
+
         const data = await response.json();
 
         if (data.success) {
             statusBadge.className = 'status-badge online';
             statusBadge.textContent = 'Online';
-            showResult(document.getElementById('token-result'), 'Bot connected successfully!', true);
+            showResult(resultBox, `Bot connected successfully! Joined ${data.guilds || 0} servers.`, true);
             
             if (data.guilds !== undefined) {
                 document.getElementById('bot-guilds').textContent = data.guilds;
             }
+            if (data.username) {
+                document.getElementById('bot-username').textContent = data.username;
+            }
         } else {
             statusBadge.className = 'status-badge offline';
             statusBadge.textContent = 'Offline';
-            showResult(document.getElementById('token-result'), `Connection failed: ${data.error}`, false);
+            showResult(resultBox, `Connection failed: ${data.error}`, false);
         }
     } catch (error) {
+        console.error('Connect error:', error);
         statusBadge.className = 'status-badge offline';
         statusBadge.textContent = 'Offline';
-        showResult(document.getElementById('token-result'), `Error: ${error.message}`, false);
+        showResult(resultBox, `Error: ${error.message}`, false);
+    } finally {
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save & Connect';
     }
 }
 

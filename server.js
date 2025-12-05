@@ -67,29 +67,40 @@ app.post('/api/verify-token', async (req, res) => {
         return res.json({ valid: false, error: 'No token provided' });
     }
 
+    const cleanToken = token.trim();
+    
+    if (!cleanToken || cleanToken.length < 50) {
+        return res.json({ valid: false, error: 'Token format appears invalid' });
+    }
+
     try {
         const response = await fetch('https://discord.com/api/v10/users/@me', {
+            method: 'GET',
             headers: {
-                'Authorization': `Bot ${token}`
+                'Authorization': `Bot ${cleanToken}`,
+                'Content-Type': 'application/json'
             }
         });
 
-        if (response.status === 200) {
+        if (response.ok) {
             const data = await response.json();
             return res.json({
                 valid: true,
                 id: data.id,
                 username: data.username,
                 discriminator: data.discriminator || '0',
-                avatar: data.avatar
+                avatar: data.avatar,
+                globalName: data.global_name
             });
         } else if (response.status === 401) {
-            return res.json({ valid: false, error: 'Invalid token' });
+            return res.json({ valid: false, error: 'Invalid token - please check your bot token' });
         } else {
-            return res.json({ valid: false, error: `API Error: ${response.status}` });
+            const errorText = await response.text().catch(() => 'Unknown error');
+            return res.json({ valid: false, error: `Discord API Error (${response.status}): ${errorText}` });
         }
     } catch (error) {
-        return res.json({ valid: false, error: error.message });
+        console.error('Token verification error:', error);
+        return res.json({ valid: false, error: `Network error: ${error.message}` });
     }
 });
 
@@ -583,21 +594,25 @@ app.post('/api/activity', (req, res) => {
     }
 
     try {
-        const activityOptions = {
-            name: text || 'Discord Bot',
-            type: activityTypes[type]
-        };
-
+        const activityName = text || 'Discord Bot';
+        
         if (type === 'STREAMING' && url) {
-            activityOptions.url = url;
+            client.user.setActivity(activityName, { 
+                type: activityTypes[type],
+                url: url
+            });
+        } else {
+            client.user.setActivity(activityName, { 
+                type: activityTypes[type]
+            });
         }
-
-        client.user.setActivity(activityOptions);
+        
         botConfig.activityType = type;
         botConfig.activityText = text;
         
         return res.json({ success: true });
     } catch (error) {
+        console.error('Activity update error:', error);
         return res.json({ success: false, error: error.message });
     }
 });
